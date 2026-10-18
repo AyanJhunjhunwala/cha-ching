@@ -26,14 +26,34 @@ export function renderMarkets(root, ctx) {
     },
   });
 
+  // Price cells by market ticker, so pushed quotes update the list in place.
+  const priceCells = new Map();
+
   function teamRow(side) {
+    const price = h('span', { class: 'team-price' }, formatCents(side.ask ?? side.last));
+    priceCells.set(side.ticker, { el: price, side });
     return h('div', { class: 'team-row' },
       h('span', { class: 'team-dot', style: { background: side.color } }),
       h('span', { class: 'team-code' }, side.code),
       h('span', { class: 'team-name' }, side.name),
-      h('span', { class: 'team-price' }, formatCents(side.ask ?? side.last)),
+      price,
     );
   }
+
+  const offTicker = ctx.stream.on('ticker', (t) => {
+    const cell = priceCells.get(t.ticker);
+    if (!cell) return;
+    const before = cell.side.ask ?? cell.side.last;
+    for (const k of ['bid', 'ask', 'last']) if (t[k] !== undefined) cell.side[k] = t[k];
+    const after = cell.side.ask ?? cell.side.last;
+    if (after === before) return;
+    cell.el.textContent = formatCents(after);
+    if (before != null && after != null) {
+      cell.el.classList.remove('tick-up', 'tick-down');
+      void cell.el.offsetWidth; // restart the flash
+      cell.el.classList.add(after > before ? 'tick-up' : 'tick-down');
+    }
+  });
 
   function gameCard(game) {
     const open = ctx.store.openCount(game.eventTicker);
@@ -91,6 +111,7 @@ export function renderMarkets(root, ctx) {
 
   function renderList() {
     listEl.replaceChildren();
+    priceCells.clear();
     if (!loaded) {
       listEl.append(...Array.from({ length: 4 }, () => h('div', { class: 'game-card skeleton' })));
       return;
@@ -120,6 +141,7 @@ export function renderMarkets(root, ctx) {
       ctx.gamesBySport[requested.key] = events.map((e) => parseGame(e, requested, timing.get(e.event_ticker))).filter(Boolean);
       if (requested !== sport) return; // the user switched sports while this was loading
       games = ctx.gamesBySport[requested.key];
+      ctx.stream.setMarkets(games.flatMap((g) => [g.away.ticker, g.home.ticker]));
       loadError = '';
     } catch (err) {
       if (requested !== sport) return;
@@ -207,12 +229,18 @@ export function renderMarkets(root, ctx) {
   );
 
   renderList();
+  if (games.length) ctx.stream.setMarkets(games.flatMap((g) => [g.away.ticker, g.home.ticker]));
   ctx.refreshBalance = loadBalance;
   const unsubscribe = ctx.store.subscribe(() => loaded && renderList());
-  const stops = [poll(load, 15000), poll(loadBalance, 30000)];
+  // Prices stream in; the REST reload picks up new games and status changes.
+  const listPoll = poll(load, () => (ctx.stream.streaming ? 20000 : 10000));
+  const offStatus = ctx.stream.on('status', (status) => status !== 'live' && listPoll.now());
+  const stops = [listPoll, poll(loadBalance, 30000)];
   return () => {
     stops.forEach((stop) => stop());
     unsubscribe();
+    offTicker();
+    offStatus();
     closeSheet?.();
     ctx.refreshBalance = null;
   };

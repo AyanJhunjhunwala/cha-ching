@@ -227,31 +227,18 @@ export function renderGame(root, ctx, initialGame) {
     }, busy ? 'Working…' : armed ? 'Tap to confirm' : 'Sell now');
   }
 
+  /**
+   * Builds a trade card. The returned `update()` refreshes only the parts that
+   * move with the market (current bid, progress, P&L) so pushed price ticks
+   * never replace buttons out from under a tap.
+   */
   function tradeCard(trade) {
-    const side = sideByTicker(trade.ticker);
-    const bid = side?.bid ?? null;
-    const left = held(trade);
     const entry = Math.round(trade.entryCents * 10) / 10;
-
-    let chip, progress = 0, pnlText = '';
-    if (trade.status === 'done') {
-      chip = h('span', { class: 'chip chip-green' }, 'Sold ✓');
-      progress = 1;
-      const pnl = realizedPnl(trade);
-      pnlText = `${formatUsd(pnl, { signed: true })} before fees`;
-    } else {
-      const unrealized = bid != null ? left * (bid - trade.entryCents) : 0;
-      const pnl = realizedPnl(trade) + unrealized;
-      pnlText = bid != null ? `${formatUsd(pnl, { signed: true })} if sold now` : '';
-      if (trade.status === 'open') {
-        chip = h('span', { class: 'chip chip-gold' }, 'Waiting');
-        if (bid != null && trade.targetCents > trade.entryCents) {
-          progress = Math.min(1, Math.max(0, (bid - trade.entryCents) / (trade.targetCents - trade.entryCents)));
-        }
-      } else {
-        chip = h('span', { class: 'chip chip-red' }, 'Needs attention');
-      }
-    }
+    const chip = trade.status === 'done'
+      ? h('span', { class: 'chip chip-green' }, 'Sold ✓')
+      : trade.status === 'open'
+        ? h('span', { class: 'chip chip-gold' }, 'Waiting')
+        : h('span', { class: 'chip chip-red' }, 'Needs attention');
 
     const actions = [];
     if (trade.status === 'open') actions.push(sellNowButton(trade));
@@ -266,8 +253,13 @@ export function renderGame(root, ctx, initialGame) {
       actions.push(h('button', { type: 'button', class: 'btn btn-small btn-ghost', onclick: () => ctx.store.remove(trade.id) }, 'Clear'));
     }
 
+    const nowEl = h('span', { class: 'trade-now' });
+    const barEl = h('span');
+    const progressEl = h('div', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100' }, barEl);
+    const pnlEl = h('span', { class: 'pnl' });
     const sold = soldCount(trade);
-    return h('article', { class: 'trade', style: { '--team': trade.color } },
+
+    const el = h('article', { class: 'trade', style: { '--team': trade.color } },
       h('div', { class: 'trade-head' },
         h('span', { class: 'trade-title' }, `${trade.code} · ${trade.count} contract${trade.count === 1 ? '' : 's'}`),
         chip,
@@ -276,34 +268,89 @@ export function renderGame(root, ctx, initialGame) {
         h('span', null, 'Bought ', h('b', null, formatCents(entry))),
         h('span', { class: 'arrow' }, '→'),
         h('span', null, 'Target ', h('b', null, formatCents(trade.targetCents))),
-        h('span', { class: 'trade-now' }, trade.status === 'done' ? '' : `Now ${formatCents(bid)}`),
+        nowEl,
       ),
-      h('div', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(progress * 100)) },
-        h('span', { style: { width: `${progress * 100}%` } }),
-      ),
+      progressEl,
       h('div', { class: 'trade-foot' },
-        h('span', { class: `pnl ${pnlText.startsWith('+') ? 'pos' : pnlText.startsWith('−') ? 'neg' : ''}` },
-          pnlText,
-          sold > 0 && trade.status !== 'done' ? h('span', { class: 'muted' }, ` · ${sold} sold`) : null,
-        ),
+        h('span', null, pnlEl, sold > 0 && trade.status !== 'done' ? h('span', { class: 'muted' }, ` · ${sold} sold`) : null),
         h('span', { class: 'trade-actions' }, actions),
       ),
       trade.note ? h('p', { class: 'trade-note' }, trade.note) : null,
     );
+
+    function update() {
+      const bid = sideByTicker(trade.ticker)?.bid ?? null;
+      let progress = 0;
+      let pnlText = '';
+      if (trade.status === 'done') {
+        progress = 1;
+        pnlText = `${formatUsd(realizedPnl(trade), { signed: true })} before fees`;
+      } else {
+        if (bid != null) pnlText = `${formatUsd(realizedPnl(trade) + held(trade) * (bid - trade.entryCents), { signed: true })} if sold now`;
+        if (trade.status === 'open' && bid != null && trade.targetCents > trade.entryCents) {
+          progress = Math.min(1, Math.max(0, (bid - trade.entryCents) / (trade.targetCents - trade.entryCents)));
+        }
+      }
+      nowEl.textContent = trade.status === 'done' ? '' : `Now ${formatCents(bid)}`;
+      barEl.style.width = `${progress * 100}%`;
+      progressEl.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+      pnlEl.textContent = pnlText;
+      pnlEl.className = `pnl ${pnlText.startsWith('+') ? 'pos' : pnlText.startsWith('−') ? 'neg' : ''}`;
+    }
+
+    return { el, update };
   }
+
+  // A card is rebuilt only when something structural changes; otherwise update() runs.
+  const cards = new Map();
+  const tradesHeading = h('h2', { class: 'section-label' }, 'Your trades');
+  const tradesHint = h('p', { class: 'hint muted' },
+    "Big moment? Hold your team's button. Cha-Ching buys at the current price and lists it for sale at your target right away. It sells on Kalshi even if your phone is locked.");
+  const cardKey = (t) =>
+    [t.status, soldCount(t), t.note, t.targetCents, (armedUntil.get(t.id) ?? 0) > Date.now(), working.has(t.id)].join('|');
 
   function renderTrades() {
     const trades = ctx.store.forEvent(game.eventTicker);
-    tradesEl.replaceChildren();
-    if (!trades.length) {
-      tradesEl.append(h('p', { class: 'hint muted' },
-        "Big moment? Hold your team's button. Cha-Ching buys at the current price and lists it for sale at your target right away. It sells on Kalshi even if your phone is locked."));
-      return;
+    for (const id of cards.keys()) if (!trades.some((t) => t.id === id)) cards.delete(id);
+    const wanted = trades.length ? [tradesHeading] : [tradesHint];
+    for (const trade of trades) {
+      const key = cardKey(trade);
+      let card = cards.get(trade.id);
+      if (!card || card.key !== key) {
+        card = { key, ...tradeCard(trade) };
+        cards.set(trade.id, card);
+      }
+      card.update();
+      wanted.push(card.el);
     }
-    tradesEl.append(h('h2', { class: 'section-label' }, 'Your trades'), ...trades.map(tradeCard));
+    const current = [...tradesEl.children];
+    if (current.length !== wanted.length || wanted.some((el, i) => current[i] !== el)) tradesEl.replaceChildren(...wanted);
   }
 
-  // --- Polling ---------------------------------------------------------------
+  // --- Live updates ------------------------------------------------------------
+  // Prices arrive over the WebSocket as they change. Bursts are coalesced into
+  // one redraw per animation frame. REST is the fallback (every 1s) when the
+  // socket is down, and a slow reconciliation (every 10s) while it is up, to
+  // pick up things the ticker doesn't carry, like a trading pause.
+
+  const streamed = new Set(); // tickers with at least one pushed quote
+  let frame = 0;
+  function scheduleRender() {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      updateButtons();
+      renderTrades();
+    });
+  }
+
+  const offTicker = ctx.stream.on('ticker', (t) => {
+    const side = sideByTicker(t.ticker);
+    if (!side) return;
+    for (const k of ['bid', 'ask', 'last']) if (t[k] !== undefined) side[k] = t[k];
+    streamed.add(t.ticker);
+    scheduleRender();
+  });
 
   async function refreshPrices() {
     try {
@@ -312,6 +359,13 @@ export function renderGame(root, ctx, initialGame) {
       const updated = parseGame(await ctx.client.getEvent(game.eventTicker), undefined, timing);
       staleEl.hidden = true;
       if (!updated) return;
+      // REST can lag the socket; while streaming, keep the pushed prices.
+      if (ctx.stream.streaming) {
+        for (const key of ['away', 'home']) {
+          if (!streamed.has(updated[key].ticker)) continue;
+          for (const k of ['bid', 'ask', 'last']) updated[key][k] = game[key][k];
+        }
+      }
       game = updated;
       updateHeader();
       updateButtons();
@@ -374,10 +428,17 @@ export function renderGame(root, ctx, initialGame) {
   // Fills on resting targets are picked up by the session-wide watcher in main.js.
   const unsubscribe = ctx.store.subscribe(renderTrades);
   ctx.refreshBalance = refreshBalance;
-  const stops = [poll(refreshPrices, 2000), poll(refreshBalance, 30000)];
+  ctx.stream.setMarkets([game.away.ticker, game.home.ticker]);
+  const pricePoll = poll(refreshPrices, () => (ctx.stream.streaming ? 10000 : 1000));
+  // Switch cadence the moment the socket drops or comes back, not after the current wait.
+  const offStatus = ctx.stream.on('status', () => pricePoll.now());
+  const stops = [pricePoll, poll(refreshBalance, 30000)];
   return () => {
     stops.forEach((stop) => stop());
     unsubscribe();
+    offTicker();
+    offStatus();
+    cancelAnimationFrame(frame);
     ctx.refreshBalance = null;
   };
 }

@@ -62,7 +62,11 @@ export function toast(message, kind = 'info') {
   toastTimer = setTimeout(() => el.classList.remove('show'), kind === 'error' ? 5000 : 3200);
 }
 
-/** Runs `fn` every `ms` while the app is visible; returns a stop function. */
+/**
+ * Runs `fn` every `ms` while the app is visible; returns a stop function.
+ * `ms` may be a function, re-read before each wait (e.g. slower while streaming);
+ * call `stop.now()` to run immediately and pick up a new interval.
+ */
 export function poll(fn, ms) {
   let timer;
   let running = false;
@@ -77,17 +81,19 @@ export function poll(fn, ms) {
       /* transient errors are surfaced by the caller */
     } finally {
       running = false;
-      if (!stopped) timer = setTimeout(tick, ms);
+      if (!stopped) timer = setTimeout(tick, typeof ms === 'function' ? ms() : ms);
     }
   };
   const onVisible = () => !document.hidden && tick();
   document.addEventListener('visibilitychange', onVisible);
   tick();
-  return () => {
+  const stop = () => {
     stopped = true;
     clearTimeout(timer);
     document.removeEventListener('visibilitychange', onVisible);
   };
+  stop.now = tick;
+  return stop;
 }
 
 const native = Capacitor.isNativePlatform();

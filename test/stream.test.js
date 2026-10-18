@@ -168,6 +168,22 @@ test('reconnects with backoff and tries the next host when one never opens', asy
   assert.equal(timers.at(-1).ms, 2000, 'keeps backing off while it keeps failing');
 });
 
+test('wake() reconnects immediately while backing off', async () => {
+  const cleared = [];
+  const { stream, sockets, timers } = harness();
+  stream.clearTimer = (t) => cleared.push(t);
+  stream.wake(); // idle: nothing to do
+  stream.start();
+  await tick();
+  sockets[0].drop();
+  assert.equal(stream.status, 'reconnecting');
+  stream.wake();
+  await tick();
+  assert.equal(sockets.length, 2, 'opened a new socket without waiting for the timer');
+  assert.equal(cleared.length, 1);
+  assert.equal(timers.length, 1);
+});
+
 test('ignores messages from a socket that has been replaced', async () => {
   const { stream, sockets, timers } = harness();
   const got = [];
@@ -201,4 +217,25 @@ test('reports unsupported runtimes and stops cleanly', async () => {
   assert.equal(stream.status, 'idle');
   sockets[0].drop();
   assert.equal(timers.length, 0, 'no reconnect after stop');
+});
+
+test('default timers work when setTimeout rejects a foreign `this` (as browsers do)', async (t) => {
+  const real = globalThis.setTimeout;
+  t.after(() => { globalThis.setTimeout = real; });
+  globalThis.setTimeout = function (fn, ms) {
+    if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation');
+    return real(fn, ms);
+  };
+  let socket;
+  const stream = new KalshiStream({
+    keyId: 'k',
+    signer: { sign: async () => 's' },
+    env: 'live',
+    connect: (args) => (socket = { args, send() {}, close() {} }),
+  });
+  stream.start();
+  await tick();
+  assert.doesNotThrow(() => socket.args.onClose());
+  assert.equal(stream.status, 'reconnecting');
+  stream.stop();
 });

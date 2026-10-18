@@ -71,7 +71,9 @@ export class KalshiStream {
    *   Opens a socket and returns its handle right away (null when this runtime
    *   can't stream). Callbacks must fire asynchronously.
    */
-  constructor({ keyId, signer, env, connect, setTimer = setTimeout, clearTimer = clearTimeout }) {
+  // Timer defaults are wrapped: browsers throw "Illegal invocation" if
+  // setTimeout is called as a method of another object.
+  constructor({ keyId, signer, env, connect, setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t) }) {
     Object.assign(this, { keyId, signer, env, connectSocket: connect, setTimer, clearTimer });
     this.status = 'idle'; // idle | connecting | live | reconnecting | unsupported
     this.listeners = new Map();
@@ -124,6 +126,13 @@ export class KalshiStream {
     socket?.close();
     this.resetSubscriptions();
     this.setStatus('idle');
+  }
+
+  /** Retry right away (e.g. the app came back to the foreground) instead of waiting out the backoff. */
+  wake() {
+    if (this.status !== 'reconnecting' || this.stopped) return;
+    this.clearTimer(this.retryTimer);
+    this.open();
   }
 
   async open() {
