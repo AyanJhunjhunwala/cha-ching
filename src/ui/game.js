@@ -1,5 +1,5 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
-import { dayLabel, parseGame } from '../nba.js';
+import { dayLabel, parseGame } from '../sports.js';
 import { clampSetting, saveSettings, stepStake } from '../store.js';
 import { held, planEntry, realizedPnl, soldCount, targetFor } from '../trader.js';
 import { stepper } from './controls.js';

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { dayLabel, groupByDay, matchesSearch, parseEventTicker, parseGame, quote } from '../src/nba.js';
+import { dayLabel, groupByDay, matchesSearch, parseEventTicker, parseGame, quote } from '../src/sports.js';
 
 const market = (ticker, bid, ask, extra = {}) => ({
   ticker,

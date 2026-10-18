@@ -1,9 +1,10 @@
-// Turns Kalshi KXNBAGAME events into "games": two teams, each backed by the
-// market that pays out if that team wins.
+// Turns Kalshi game events into "games": two teams, each backed by the market
+// that pays out if that team wins. Each sport is one Kalshi series of
+// single-game winner markets.
 
 import { toCents } from './kalshi/money.js';
 
-export const TEAMS = {
+const NBA_TEAMS = {
   ATL: { city: 'Atlanta', name: 'Hawks', color: '#E03A3E', alt: '#26282A' },
   BOS: { city: 'Boston', name: 'Celtics', color: '#007A33', alt: '#8B6F3E' },
   BKN: { city: 'Brooklyn', name: 'Nets', color: '#1F1F1F', alt: '#5F6264' },
@@ -37,7 +38,16 @@ export const TEAMS = {
 };
 
 // Alternate abbreviations seen across data providers.
-const ALIASES = { GS: 'GSW', NO: 'NOP', NY: 'NYK', SA: 'SAS', PHO: 'PHX', BRK: 'BKN', WSH: 'WAS', UTAH: 'UTA', CHO: 'CHA' };
+const NBA_ALIASES = { GS: 'GSW', NO: 'NOP', NY: 'NYK', SA: 'SAS', PHO: 'PHX', BRK: 'BKN', WSH: 'WAS', UTAH: 'UTA', CHO: 'CHA' };
+
+export const SPORTS = [
+  { key: 'nba', label: 'NBA', series: 'KXNBAGAME', teams: NBA_TEAMS, aliases: NBA_ALIASES },
+];
+
+export const sportByKey = (key) => SPORTS.find((s) => s.key === key) ?? SPORTS[0];
+
+/** The sport whose series an event belongs to, e.g. "KXNBAGAME-…" -> NBA. */
+export const sportForEvent = (eventTicker) => SPORTS.find((s) => eventTicker?.startsWith(`${s.series}-`)) ?? null;
 
 const MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
 
@@ -78,10 +88,10 @@ function fallbackColor(code) {
   return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
 }
 
-function toSide(market) {
+function toSide(market, sport) {
   const raw = market.ticker.split('-').pop();
-  const code = ALIASES[raw] ?? raw;
-  const team = TEAMS[code];
+  const code = sport?.aliases[raw] ?? raw;
+  const team = sport?.teams[code];
   return {
     ticker: market.ticker,
     raw,
@@ -97,12 +107,12 @@ function toSide(market) {
 }
 
 /** @returns game object, or null if the event doesn't look like a two-team game. */
-export function parseGame(event) {
+export function parseGame(event, sport = sportForEvent(event.event_ticker)) {
   const markets = (event.markets ?? []).filter((m) => m.ticker);
   if (markets.length < 2) return null;
 
   const { date, matchup } = parseEventTicker(event.event_ticker);
-  const sides = markets.slice(0, 2).map(toSide);
+  const sides = markets.slice(0, 2).map((m) => toSide(m, sport));
   // The event code lists the away team first ("HOUOKC" = Houston at OKC).
   const pos = (s) => {
     const i = matchup.indexOf(s.raw);
@@ -114,6 +124,7 @@ export function parseGame(event) {
   if (colorDistance(away.color, home.color) < 90) home.color = home.alt;
 
   return {
+    sport: sport?.key ?? null,
     eventTicker: event.event_ticker,
     title: event.title ?? `${away.city} at ${home.city}`,
     date,

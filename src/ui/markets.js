@@ -1,5 +1,5 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
-import { groupByDay, matchesSearch, parseGame } from '../nba.js';
+import { groupByDay, matchesSearch, parseGame, SPORTS } from '../sports.js';
 import { clampSetting, saveSettings } from '../store.js';
 import { sheet, stepper } from './controls.js';
 import { h, logo, poll, svgIcon, toast } from './dom.js';
@@ -110,8 +110,9 @@ export function renderMarkets(root, ctx) {
 
   async function load() {
     try {
-      const events = await ctx.client.listEvents();
-      games = events.map(parseGame).filter(Boolean);
+      const sport = SPORTS[0];
+      const events = await ctx.client.listEvents(sport.series);
+      games = events.map((e) => parseGame(e, sport)).filter(Boolean);
       ctx.cachedGames = games;
       loadError = '';
     } catch (err) {

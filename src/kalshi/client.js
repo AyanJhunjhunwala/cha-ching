@@ -5,9 +5,6 @@ import { toCents, toCount, toDollarString } from './money.js';
 
 const API_PREFIX = '/trade-api/v2';
 
-/** Kalshi's series of single-game NBA winner markets (one market per team). */
-export const NBA_SERIES = 'KXNBAGAME';
-
 export class KalshiError extends Error {
   constructor(message, { status = 0, code = '', cause } = {}) {
     super(message, { cause });
@@ -77,7 +74,7 @@ export class KalshiClient {
   }
 
   /** Open events in a series, each with its markets nested. */
-  async listEvents(seriesTicker = NBA_SERIES) {
+  async listEvents(seriesTicker) {
     const events = [];
     let cursor;
     for (let page = 0; page < 5; page++) {

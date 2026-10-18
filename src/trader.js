@@ -4,7 +4,7 @@
 // even if the phone is locked or the app is closed.
 
 import { clampPrice, formatCents, MAX_PRICE, roundToTick } from './kalshi/money.js';
-import { quote } from './nba.js';
+import { quote } from './sports.js';
 
 export class TradeError extends Error {
   constructor(message, code = '') {
