@@ -1,9 +1,11 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
+import { formatAge, formatMove } from '../live.js';
 import { dayLabel, isLive, parseGame, startsInLabel, startTimeLabel } from '../sports.js';
 import { clampSetting, saveSettings, stepStake } from '../store.js';
 import { held, planEntry, realizedPnl, soldCount, targetFor } from '../trader.js';
 import { stepper } from './controls.js';
 import { h, haptic, liveBadge, poll, svgIcon, toast } from './dom.js';
+import { createSparkline } from './spark.js';
 
 const HOLD_MS = 600;
 
@@ -36,6 +38,24 @@ export function renderGame(root, ctx, initialGame) {
   }
   const tradesEl = h('section', { class: 'trades', 'aria-live': 'polite' });
 
+  // "Is this game moving?" — feed state, trade pace and time since the last price move.
+  const feedText = h('span');
+  const feedEl = h('div', { class: 'feed', role: 'status' }, h('span', { class: 'feed-dot', 'aria-hidden': 'true' }), feedText);
+  function updateFeed() {
+    const tickers = [game.away.ticker, game.home.ticker];
+    const status = ctx.stream.status;
+    const streaming = status === 'live';
+    feedEl.dataset.state = streaming ? 'live' : status === 'unsupported' ? 'poll' : 'retry';
+    const parts = [streaming ? 'Live feed' : status === 'unsupported' ? 'Checking every 1s' : 'Reconnecting · checking every 1s'];
+    if (streaming) {
+      const pace = ctx.tape.tradesPerMinute(tickers);
+      parts.push(`${pace} trade${pace === 1 ? '' : 's'}/min`);
+    }
+    const moved = ctx.tape.lastMove(tickers);
+    if (moved) parts.push(`moved ${formatAge(Date.now() - moved)}`);
+    feedText.textContent = parts.join(' · ');
+  }
+
   const sideByTicker = (ticker) => [game.away, game.home].find((s) => s.ticker === ticker);
 
   async function refreshBalance() {
@@ -57,10 +77,13 @@ export function renderGame(root, ctx, initialGame) {
     const plan = h('span', { class: 'favor-plan' });
     const profit = h('span', { class: 'favor-profit' });
     const cta = h('span', { class: 'favor-cta' });
+    const spark = createSparkline();
+    const moveText = h('span', { class: 'favor-move-text' });
+    const move = h('span', { class: 'favor-move' }, spark.el, moveText);
     const btn = h('button', { type: 'button', class: 'favor' },
       fill, code, name,
       h('span', { class: 'favor-price-wrap' }, price, h('span', { class: 'favor-price-label' }, 'buy price')),
-      plan, profit, cta,
+      move, plan, profit, cta,
     );
 
     let timer = null;
@@ -113,6 +136,12 @@ export function renderGame(root, ctx, initialGame) {
         price.classList.add(side.ask > lastAsk ? 'tick-up' : 'tick-down');
       }
       lastAsk = side.ask;
+
+      // Last 10 minutes of the buy price, and how far it moved in the last 5.
+      spark.draw(ctx.tape.series(side.ticker));
+      const change = formatMove(ctx.tape.change(side.ticker));
+      moveText.textContent = change?.text ?? 'watching…';
+      move.dataset.dir = change?.dir ?? 'none';
 
       let blocked = '';
       try {
@@ -341,6 +370,7 @@ export function renderGame(root, ctx, initialGame) {
       frame = 0;
       updateButtons();
       renderTrades();
+      updateFeed();
     });
   }
 
@@ -351,6 +381,7 @@ export function renderGame(root, ctx, initialGame) {
     streamed.add(t.ticker);
     scheduleRender();
   });
+  const offTrade = ctx.stream.on('trade', (t) => sideByTicker(t.ticker) && updateFeed());
 
   async function refreshPrices() {
     try {
@@ -367,7 +398,11 @@ export function renderGame(root, ctx, initialGame) {
         }
       }
       game = updated;
+      for (const side of [game.away, game.home]) {
+        if (!ctx.stream.streaming || !ctx.tape.has(side.ticker)) ctx.tape.recordQuote(side.ticker, side);
+      }
       updateHeader();
+      updateFeed();
       updateButtons();
       renderTrades();
     } catch {
@@ -387,6 +422,7 @@ export function renderGame(root, ctx, initialGame) {
         ),
         balanceEl,
       ),
+      feedEl,
       staleEl,
       h('section', { class: 'card controls', 'aria-label': 'Trade settings' },
         stepper({
@@ -431,12 +467,19 @@ export function renderGame(root, ctx, initialGame) {
   ctx.stream.setMarkets([game.away.ticker, game.home.ticker]);
   const pricePoll = poll(refreshPrices, () => (ctx.stream.streaming ? 10000 : 1000));
   // Switch cadence the moment the socket drops or comes back, not after the current wait.
-  const offStatus = ctx.stream.on('status', () => pricePoll.now());
+  const offStatus = ctx.stream.on('status', () => {
+    updateFeed();
+    pricePoll.now();
+  });
+  const feedTimer = setInterval(updateFeed, 1000); // keeps "last move 4s ago" ticking
+  updateFeed();
   const stops = [pricePoll, poll(refreshBalance, 30000)];
   return () => {
     stops.forEach((stop) => stop());
+    clearInterval(feedTimer);
     unsubscribe();
     offTicker();
+    offTrade();
     offStatus();
     cancelAnimationFrame(frame);
     ctx.refreshBalance = null;

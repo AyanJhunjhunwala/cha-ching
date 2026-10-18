@@ -3,6 +3,7 @@ import './styles.css';
 import { formatCents, formatUsd } from './kalshi/money.js';
 import { connectSocket } from './kalshi/socket.js';
 import { KalshiStream } from './kalshi/stream.js';
+import { LiveTape } from './live.js';
 import { connect } from './session.js';
 import { clearCreds, loadCreds, loadSettings, TradeStore } from './store.js';
 import { realizedPnl, Trader } from './trader.js';
@@ -69,12 +70,17 @@ function startSession({ client, env, balanceCents }) {
   const store = new TradeStore(env, client.keyId);
   const stream = new KalshiStream({ keyId: client.keyId, signer: client.signer, env, connect: connectSocket });
   const wake = () => !document.hidden && stream.wake();
+  // Registered before any screen's listeners, so screens always render the updated tape.
+  const tape = new LiveTape();
+  stream.on('ticker', (t) => tape.recordQuote(t.ticker, t));
+  stream.on('trade', (t) => tape.recordTrade(t.ticker, t.count));
   const ctx = {
     client,
     env,
     balanceCents,
     store,
     stream,
+    tape,
     settings: loadSettings(),
     trader: new Trader({ client, store }),
     gamesBySport: {}, // last loaded games per sport, so switching sports is instant

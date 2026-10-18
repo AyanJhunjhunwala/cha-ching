@@ -1,4 +1,5 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
+import { formatMove } from '../live.js';
 import { groupByDay, isLive, matchesSearch, parseGame, sportByKey, sportForEvent, SPORTS, startsInLabel, startTimeLabel, timingByEvent } from '../sports.js';
 import { clampSetting, loadSportKey, saveSettings, saveSportKey } from '../store.js';
 import { sheet, stepper } from './controls.js';
@@ -29,13 +30,27 @@ export function renderMarkets(root, ctx) {
   // Price cells by market ticker, so pushed quotes update the list in place.
   const priceCells = new Map();
 
-  function teamRow(side) {
+  // Live games show how far each team moved in the last 5 minutes: "▲3".
+  function paintMove(cell) {
+    if (!cell.move) return;
+    const change = ctx.tape.change(cell.side.ticker);
+    const cents = Math.round(Math.abs(change?.delta ?? 0));
+    const dir = cents ? formatMove(change).dir : 'flat';
+    cell.move.textContent = cents ? `${dir === 'up' ? '▲' : '▼'}${cents}` : '';
+    cell.move.dataset.dir = dir;
+  }
+
+  function teamRow(side, live) {
     const price = h('span', { class: 'team-price' }, formatCents(side.ask ?? side.last));
-    priceCells.set(side.ticker, { el: price, side });
+    const move = live ? h('span', { class: 'team-move', title: 'Change in the last 5 minutes' }) : null;
+    const cell = { el: price, side, move };
+    priceCells.set(side.ticker, cell);
+    paintMove(cell);
     return h('div', { class: 'team-row' },
       h('span', { class: 'team-dot', style: { background: side.color } }),
       h('span', { class: 'team-code' }, side.code),
       h('span', { class: 'team-name' }, side.name),
+      move,
       price,
     );
   }
@@ -46,6 +61,7 @@ export function renderMarkets(root, ctx) {
     const before = cell.side.ask ?? cell.side.last;
     for (const k of ['bid', 'ask', 'last']) if (t[k] !== undefined) cell.side[k] = t[k];
     const after = cell.side.ask ?? cell.side.last;
+    paintMove(cell);
     if (after === before) return;
     cell.el.textContent = formatCents(after);
     if (before != null && after != null) {
@@ -60,7 +76,7 @@ export function renderMarkets(root, ctx) {
     const live = isLive(game);
     const time = startsInLabel(game) || startTimeLabel(game);
     return h('button', { type: 'button', class: `game-card${live ? ' is-live' : ''}`, onclick: () => ctx.openGame(game) },
-      h('div', { class: 'game-teams' }, teamRow(game.away), teamRow(game.home)),
+      h('div', { class: 'game-teams' }, teamRow(game.away, live), teamRow(game.home, live)),
       h('div', { class: 'game-meta' },
         live ? liveBadge() : time ? h('span', { class: 'game-time' }, time) : null,
         open ? h('span', { class: 'chip chip-gold' }, `${open} open`) : null,
@@ -142,6 +158,9 @@ export function renderMarkets(root, ctx) {
       if (requested !== sport) return; // the user switched sports while this was loading
       games = ctx.gamesBySport[requested.key];
       ctx.stream.setMarkets(games.flatMap((g) => [g.away.ticker, g.home.ticker]));
+      for (const side of games.flatMap((g) => [g.away, g.home])) {
+        if (!ctx.stream.streaming || !ctx.tape.has(side.ticker)) ctx.tape.recordQuote(side.ticker, side);
+      }
       loadError = '';
     } catch (err) {
       if (requested !== sport) return;
@@ -151,6 +170,17 @@ export function renderMarkets(root, ctx) {
     loaded = true;
     renderList();
   }
+
+  const feedText = h('span');
+  const feedEl = h('div', { class: 'feed', role: 'status' }, h('span', { class: 'feed-dot', 'aria-hidden': 'true' }), feedText);
+  function updateFeed() {
+    const status = ctx.stream.status;
+    feedEl.dataset.state = status === 'live' ? 'live' : status === 'unsupported' ? 'poll' : 'retry';
+    feedText.textContent = status === 'live'
+      ? 'Live feed · prices update as they change'
+      : status === 'unsupported' ? 'Prices refresh every 10s' : 'Connecting live feed · refreshing every 10s';
+  }
+  updateFeed();
 
   const sportTabs = SPORTS.map((s) =>
     h('button', {
@@ -223,6 +253,7 @@ export function renderMarkets(root, ctx) {
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Settings', onclick: openSettings }, svgIcon('gear')),
       ),
       h('div', { class: 'seg sport-tabs', role: 'group', 'aria-label': 'Sport' }, sportTabs),
+      feedEl,
       h('div', { class: 'search' }, svgIcon('search'), search),
       listEl,
     ),
@@ -234,7 +265,10 @@ export function renderMarkets(root, ctx) {
   const unsubscribe = ctx.store.subscribe(() => loaded && renderList());
   // Prices stream in; the REST reload picks up new games and status changes.
   const listPoll = poll(load, () => (ctx.stream.streaming ? 20000 : 10000));
-  const offStatus = ctx.stream.on('status', (status) => status !== 'live' && listPoll.now());
+  const offStatus = ctx.stream.on('status', (status) => {
+    updateFeed();
+    if (status !== 'live') listPoll.now();
+  });
   const stops = [listPoll, poll(loadBalance, 30000)];
   return () => {
     stops.forEach((stop) => stop());
