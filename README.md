@@ -29,6 +29,19 @@ There is no backend. The app signs every request on your device (RSA-PSS or Ed25
 - **iPhone:** stored in the app's sandboxed storage when **Remember on this device** is checked.
 - **Desktop:** encrypted with the OS keychain through Electron `safeStorage`. If no keychain is available, the app tells you and doesn't save the key.
 
+## Quickest way to try it: your computer's browser
+
+Needs [Node.js](https://nodejs.org) 20 or newer.
+
+```bash
+git clone https://github.com/AyanJhunjhunwala/cha-ching.git
+cd cha-ching
+npm install
+npm run dev
+```
+
+Open http://localhost:5173 and sign in with your key; choose **Demo** for a demo key. Vite's dev server forwards requests to Kalshi from your own machine, so nothing goes through anyone else's server.
+
 ## Install on your iPhone
 
 > **Why not Electron on iPhone?** Electron only runs on macOS, Windows and Linux, and Apple doesn't allow it on iOS. So the same app is wrapped two ways: **Capacitor** for iPhone (a native iOS app around the web UI) and **Electron** for desktop.
@@ -58,17 +71,14 @@ npm run electron       # build and launch
 npm run dist:desktop   # package an installer into release/
 ```
 
-## Develop in a browser
+## Development
 
 ```bash
-npm run dev            # http://localhost:5173
-```
-
-Vite proxies `/kalshi/live` and `/kalshi/demo` to Kalshi so the browser doesn't block requests.
-
-```bash
+npm run dev            # http://localhost:5173, hot reload
 npm test               # signer, NBA parsing, trading engine, API client
 ```
+
+In the browser, Vite proxies `/kalshi/live` and `/kalshi/demo` to Kalshi so CORS doesn't block requests.
 
 ## Getting a Kalshi API key
 

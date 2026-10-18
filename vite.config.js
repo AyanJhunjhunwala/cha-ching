@@ -6,6 +6,13 @@ const kalshiProxy = (target, prefix) => ({
   target,
   changeOrigin: true,
   rewrite: (path) => path.replace(prefix, ''),
+  // Forward like a plain API client, not a browser page on localhost.
+  configure: (proxy) => {
+    proxy.on('proxyReq', (proxyReq) => {
+      proxyReq.removeHeader('origin');
+      proxyReq.removeHeader('referer');
+    });
+  },
 });
 
 export default defineConfig({
