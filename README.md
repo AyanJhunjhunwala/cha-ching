@@ -31,13 +31,21 @@ There is no backend. The app signs every request on your device (RSA-PSS or Ed25
 
 ## Quickest way to try it: your computer's browser
 
-Needs [Node.js](https://nodejs.org) 20 or newer.
+Needs **Node.js 22.12 or newer** (check with `node -v`). Older versions are refused at `npm install`.
 
 ```bash
 git clone https://github.com/AyanJhunjhunwala/cha-ching.git
 cd cha-ching
 npm install
 npm run dev
+```
+
+To upgrade Node on a Mac, use one of:
+
+```bash
+brew install node@22 && brew link --overwrite --force node@22   # Homebrew
+nvm install 22 && nvm use 22                                   # nvm (reads .nvmrc)
+conda install -c conda-forge "nodejs>=22.12"                   # if `which node` points into conda
 ```
 
 Open http://localhost:5173 and sign in with your key; choose **Demo** for a demo key. Vite's dev server forwards requests to Kalshi from your own machine, so nothing goes through anyone else's server.
@@ -79,6 +87,20 @@ npm test               # signer, NBA parsing, trading engine, API client
 ```
 
 In the browser, Vite proxies `/kalshi/live` and `/kalshi/demo` to Kalshi so CORS doesn't block requests.
+
+## Troubleshooting
+
+**`Cannot find native binding` / `Cannot find module '@rolldown/binding-…'` when running `npm run dev`.** Your Node is older than 22.12. npm quietly skips the build tool's native binary on unsupported Node versions. Upgrade Node (see above), then reinstall from scratch:
+
+```bash
+rm -rf node_modules
+npm install
+npm run dev
+```
+
+**`EBADENGINE … Required: {"node":">=22.12.0"}` from `npm install`.** Same cause, caught earlier. Upgrade Node and run `npm install` again.
+
+**`npm audit` warnings.** They come from build tooling (electron-builder, the Capacitor CLI); `npm audit --omit=dev` reports none in the app itself. Don't run `npm audit fix --force`: it downgrades packages and breaks the build.
 
 ## Getting a Kalshi API key
 
