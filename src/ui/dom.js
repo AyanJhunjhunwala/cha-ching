@@ -44,6 +44,11 @@ export function logo(size = 40) {
   return span;
 }
 
+/** Red pulsing "LIVE" pill for games in progress. */
+export function liveBadge() {
+  return h('span', { class: 'live-badge' }, h('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'LIVE');
+}
+
 let toastTimer;
 export function toast(message, kind = 'info') {
   let el = document.getElementById('toast');

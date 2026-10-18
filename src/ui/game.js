@@ -1,9 +1,9 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
-import { dayLabel, parseGame, startTimeLabel } from '../sports.js';
+import { dayLabel, isLive, parseGame, startsInLabel, startTimeLabel } from '../sports.js';
 import { clampSetting, saveSettings, stepStake } from '../store.js';
 import { held, planEntry, realizedPnl, soldCount, targetFor } from '../trader.js';
 import { stepper } from './controls.js';
-import { h, haptic, poll, svgIcon, toast } from './dom.js';
+import { h, haptic, liveBadge, poll, svgIcon, toast } from './dom.js';
 
 const HOLD_MS = 600;
 
@@ -25,6 +25,15 @@ export function renderGame(root, ctx, initialGame) {
 
   const balanceEl = h('span', { class: 'balance' }, formatUsd(ctx.balanceCents));
   const staleEl = h('div', { class: 'stale', hidden: true }, 'Reconnecting to Kalshi…');
+  const badgeEl = h('span', { class: 'title-badge' });
+  const subtitleEl = h('span', { class: 'muted small' });
+
+  function updateHeader() {
+    badgeEl.replaceChildren(...(isLive(game) ? [liveBadge()] : []));
+    subtitleEl.textContent = [dayLabel(game.date), startsInLabel(game) || startTimeLabel(game), ctx.env === 'demo' ? 'Demo' : '']
+      .filter(Boolean)
+      .join(' · ');
+  }
   const tradesEl = h('section', { class: 'trades', 'aria-live': 'polite' });
 
   const sideByTicker = (ticker) => [game.away, game.home].find((s) => s.ticker === ticker);
@@ -298,10 +307,13 @@ export function renderGame(root, ctx, initialGame) {
 
   async function refreshPrices() {
     try {
-      const updated = parseGame(await ctx.client.getEvent(game.eventTicker));
+      // Single-event reads don't include milestones, so keep the start time we already have.
+      const timing = game.start ? { start: game.start, end: game.end } : null;
+      const updated = parseGame(await ctx.client.getEvent(game.eventTicker), undefined, timing);
       staleEl.hidden = true;
       if (!updated) return;
       game = updated;
+      updateHeader();
       updateButtons();
       renderTrades();
     } catch {
@@ -316,8 +328,8 @@ export function renderGame(root, ctx, initialGame) {
       h('header', { class: 'topbar' },
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Back to games', onclick: ctx.openMarkets }, svgIcon('back')),
         h('div', { class: 'topbar-title stack' },
-          h('h1', null, `${game.away.code} @ ${game.home.code}`),
-          h('span', { class: 'muted small' }, [dayLabel(game.date), startTimeLabel(game), ctx.env === 'demo' ? 'Demo' : ''].filter(Boolean).join(' · ')),
+          h('div', { class: 'title-row' }, h('h1', null, `${game.away.code} @ ${game.home.code}`), badgeEl),
+          subtitleEl,
         ),
         balanceEl,
       ),
@@ -356,6 +368,7 @@ export function renderGame(root, ctx, initialGame) {
     ),
   );
 
+  updateHeader();
   updateButtons();
   renderTrades();
   // Fills on resting targets are picked up by the session-wide watcher in main.js.

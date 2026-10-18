@@ -1,8 +1,8 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
-import { groupByDay, matchesSearch, parseGame, sportByKey, sportForEvent, SPORTS, startTimeLabel } from '../sports.js';
+import { groupByDay, isLive, matchesSearch, parseGame, sportByKey, sportForEvent, SPORTS, startsInLabel, startTimeLabel, timingByEvent } from '../sports.js';
 import { clampSetting, loadSportKey, saveSettings, saveSportKey } from '../store.js';
 import { sheet, stepper } from './controls.js';
-import { h, logo, poll, svgIcon, toast } from './dom.js';
+import { h, liveBadge, logo, poll, svgIcon, toast } from './dom.js';
 
 /** Scrollable list of open games for the chosen sport; tap one to trade it. */
 export function renderMarkets(root, ctx) {
@@ -37,11 +37,12 @@ export function renderMarkets(root, ctx) {
 
   function gameCard(game) {
     const open = ctx.store.openCount(game.eventTicker);
-    const time = startTimeLabel(game);
-    return h('button', { type: 'button', class: 'game-card', onclick: () => ctx.openGame(game) },
+    const live = isLive(game);
+    const time = startsInLabel(game) || startTimeLabel(game);
+    return h('button', { type: 'button', class: `game-card${live ? ' is-live' : ''}`, onclick: () => ctx.openGame(game) },
       h('div', { class: 'game-teams' }, teamRow(game.away), teamRow(game.home)),
       h('div', { class: 'game-meta' },
-        time ? h('span', { class: 'game-time' }, time) : null,
+        live ? liveBadge() : time ? h('span', { class: 'game-time' }, time) : null,
         open ? h('span', { class: 'chip chip-gold' }, `${open} open`) : null,
         game.tradable ? null : h('span', { class: 'chip' }, 'Paused'),
         h('span', { class: 'chevron', 'aria-hidden': 'true' }, '›'),
@@ -107,15 +108,16 @@ export function renderMarkets(root, ctx) {
       return;
     }
     for (const group of groupByDay(visible)) {
-      listEl.append(h('h2', { class: 'day-label' }, group.label), ...group.games.map(gameCard));
+      listEl.append(h('h2', { class: `day-label${group.live ? ' live-label' : ''}` }, group.label), ...group.games.map(gameCard));
     }
   }
 
   async function load() {
     const requested = sport;
     try {
-      const events = await ctx.client.listEvents(requested.series);
-      ctx.gamesBySport[requested.key] = events.map((e) => parseGame(e, requested)).filter(Boolean);
+      const { events, milestones } = await ctx.client.listEvents(requested.series);
+      const timing = timingByEvent(milestones);
+      ctx.gamesBySport[requested.key] = events.map((e) => parseGame(e, requested, timing.get(e.event_ticker))).filter(Boolean);
       if (requested !== sport) return; // the user switched sports while this was loading
       games = ctx.gamesBySport[requested.key];
       loadError = '';

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { dayLabel, groupByDay, matchesSearch, parseEventTicker, parseGame, quote, sportForEvent, SPORTS } from '../src/sports.js';
+import { dayLabel, groupByDay, isLive, liveState, matchesSearch, parseEventTicker, parseGame, quote, sportForEvent, SPORTS, startsInLabel, timingByEvent } from '../src/sports.js';
 
 const market = (ticker, bid, ask, extra = {}) => ({
   ticker,
@@ -160,4 +160,64 @@ test('matchesSearch matches code, city or nickname', () => {
   });
   for (const q of ['hou', 'Thunder', 'oklahoma', '']) assert.ok(matchesSearch(game, q), q);
   assert.ok(!matchesSearch(game, 'lakers'));
+});
+
+test('timingByEvent reads game start times from milestones', () => {
+  const timing = timingByEvent([
+    { type: 'basketball_tournament', start_date: '2026-10-01T00:00:00Z', related_event_tickers: ['KXNBAGAME-26OCT20LALGSW'], primary_event_tickers: [] },
+    { type: 'basketball_game', start_date: '2026-10-21T02:00:00Z', end_date: null, primary_event_tickers: ['KXNBAGAME-26OCT20LALGSW'], related_event_tickers: [] },
+    { type: 'basketball_game', start_date: 'not a date', primary_event_tickers: ['KXNBAGAME-26OCT20BOSNYK'] },
+    { type: 'football_game', start_date: '2026-10-18T17:00:00Z', end_date: '2026-10-18T20:30:00Z', related_event_tickers: ['KXNFLGAME-26OCT18DENKC'] },
+  ]);
+  assert.equal(timing.get('KXNBAGAME-26OCT20LALGSW').start.toISOString(), '2026-10-21T02:00:00.000Z');
+  assert.equal(timing.has('KXNBAGAME-26OCT20BOSNYK'), false);
+  assert.equal(timing.get('KXNFLGAME-26OCT18DENKC').end.toISOString(), '2026-10-18T20:30:00.000Z');
+});
+
+const nbaGame = (timing) => parseGame({
+  event_ticker: 'KXNBAGAME-26OCT20LALGSW',
+  markets: [market('KXNBAGAME-26OCT20LALGSW-LAL', '0.48', '0.5'), market('KXNBAGAME-26OCT20LALGSW-GSW', '0.5', '0.52')],
+}, undefined, timing);
+
+test('a milestone start time gives every sport a start time', () => {
+  const game = nbaGame({ start: new Date('2026-10-21T02:00:00Z'), end: null });
+  assert.equal(game.hasTime, true);
+  assert.equal(game.start.toISOString(), '2026-10-21T02:00:00.000Z');
+  assert.equal(game.date, game.start);
+  assert.equal(nbaGame(null).start, null);
+  assert.equal(parseGame({ event_ticker: 'KXMLBGAME-26MAY292005KCTEX', markets: [market('KXMLBGAME-26MAY292005KCTEX-KC', '0.4', '0.42'), market('KXMLBGAME-26MAY292005KCTEX-TEX', '0.57', '0.59')] }).start.toISOString(), '2026-05-30T00:05:00.000Z');
+});
+
+test('liveState follows the game window for each sport', () => {
+  const start = new Date('2026-10-21T02:00:00Z');
+  const game = nbaGame({ start, end: null });
+  const at = (minutes) => new Date(start.getTime() + minutes * 60000);
+  assert.equal(liveState(game, at(-30)), 'upcoming');
+  assert.equal(startsInLabel(game, at(-25)), 'in 25m');
+  assert.equal(startsInLabel(game, at(-90)), '');
+  assert.equal(liveState(game, at(0)), 'live');
+  assert.equal(liveState(game, at(179)), 'live'); // NBA window is 3h
+  assert.equal(liveState(game, at(181)), 'ended');
+  assert.equal(liveState(nbaGame(null), at(0)), 'unknown');
+
+  const withEnd = nbaGame({ start, end: at(150) });
+  assert.equal(liveState(withEnd, at(151)), 'ended');
+
+  const mlb = parseGame({ event_ticker: 'KXMLBGAME-26MAY292005KCTEX', markets: [market('KXMLBGAME-26MAY292005KCTEX-KC', '0.4', '0.42'), market('KXMLBGAME-26MAY292005KCTEX-TEX', '0.57', '0.59')] });
+  assert.equal(isLive(mlb, new Date(mlb.start.getTime() + 4.25 * 3600000)), true); // extra innings
+});
+
+test('live games come first under "Live now"', () => {
+  const now = new Date('2026-10-21T03:00:00Z');
+  const ev = (t, start) => parseGame({ event_ticker: t, markets: [market(`${t}-AAA`, '0.4', '0.5'), market(`${t}-BBB`, '0.5', '0.6')] }, undefined, start ? { start: new Date(start), end: null } : null);
+  const groups = groupByDay([
+    ev('KXNBAGAME-26OCT21AAABBB', '2026-10-21T23:00:00Z'),
+    ev('KXNBAGAME-26OCT20CCCDDD', '2026-10-21T02:30:00Z'),
+    ev('KXNBAGAME-26OCT20EEEFFF', '2026-10-21T01:00:00Z'),
+    ev('KXNBAGAME-26OCT22GGGHHH', null),
+  ], now);
+  assert.equal(groups[0].label, 'Live now');
+  assert.equal(groups[0].live, true);
+  assert.deepEqual(groups[0].games.map((g) => g.eventTicker), ['KXNBAGAME-26OCT20EEEFFF', 'KXNBAGAME-26OCT20CCCDDD']);
+  assert.ok(groups.slice(1).every((g) => !g.live && g.games.every((x) => !isLive(x, now))));
 });
