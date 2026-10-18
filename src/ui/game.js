@@ -1,5 +1,5 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
-import { dayLabel, parseGame } from '../sports.js';
+import { dayLabel, parseGame, startTimeLabel } from '../sports.js';
 import { clampSetting, saveSettings, stepStake } from '../store.js';
 import { held, planEntry, realizedPnl, soldCount, targetFor } from '../trader.js';
 import { stepper } from './controls.js';
@@ -288,7 +288,7 @@ export function renderGame(root, ctx, initialGame) {
     tradesEl.replaceChildren();
     if (!trades.length) {
       tradesEl.append(h('p', { class: 'hint muted' },
-        "Big run? Hold your team's button. Cha-Ching buys at the current price and lists it for sale at your target right away. It sells on Kalshi even if your phone is locked."));
+        "Big moment? Hold your team's button. Cha-Ching buys at the current price and lists it for sale at your target right away. It sells on Kalshi even if your phone is locked."));
       return;
     }
     tradesEl.append(h('h2', { class: 'section-label' }, 'Your trades'), ...trades.map(tradeCard));
@@ -317,7 +317,7 @@ export function renderGame(root, ctx, initialGame) {
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Back to games', onclick: ctx.openMarkets }, svgIcon('back')),
         h('div', { class: 'topbar-title stack' },
           h('h1', null, `${game.away.code} @ ${game.home.code}`),
-          h('span', { class: 'muted small' }, `${dayLabel(game.date)}${ctx.env === 'demo' ? ' · Demo' : ''}`),
+          h('span', { class: 'muted small' }, [dayLabel(game.date), startTimeLabel(game), ctx.env === 'demo' ? 'Demo' : ''].filter(Boolean).join(' · ')),
         ),
         balanceEl,
       ),

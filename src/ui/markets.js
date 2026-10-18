@@ -1,13 +1,14 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
-import { groupByDay, matchesSearch, parseGame, SPORTS } from '../sports.js';
-import { clampSetting, saveSettings } from '../store.js';
+import { groupByDay, matchesSearch, parseGame, sportByKey, sportForEvent, SPORTS, startTimeLabel } from '../sports.js';
+import { clampSetting, loadSportKey, saveSettings, saveSportKey } from '../store.js';
 import { sheet, stepper } from './controls.js';
 import { h, logo, poll, svgIcon, toast } from './dom.js';
 
-/** Scrollable list of open NBA games; tap one to trade it. */
+/** Scrollable list of open games for the chosen sport; tap one to trade it. */
 export function renderMarkets(root, ctx) {
-  let games = ctx.cachedGames ?? [];
-  let loaded = games.length > 0;
+  let sport = sportByKey(loadSportKey());
+  let games = ctx.gamesBySport[sport.key] ?? [];
+  let loaded = sport.key in ctx.gamesBySport;
   let loadError = '';
   let query = '';
   let closeSheet = null;
@@ -36,9 +37,11 @@ export function renderMarkets(root, ctx) {
 
   function gameCard(game) {
     const open = ctx.store.openCount(game.eventTicker);
+    const time = startTimeLabel(game);
     return h('button', { type: 'button', class: 'game-card', onclick: () => ctx.openGame(game) },
       h('div', { class: 'game-teams' }, teamRow(game.away), teamRow(game.home)),
       h('div', { class: 'game-meta' },
+        time ? h('span', { class: 'game-time' }, time) : null,
         open ? h('span', { class: 'chip chip-gold' }, `${open} open`) : null,
         game.tradable ? null : h('span', { class: 'chip' }, 'Paused'),
         h('span', { class: 'chevron', 'aria-hidden': 'true' }, '›'),
@@ -51,7 +54,7 @@ export function renderMarkets(root, ctx) {
     const listed = new Set(games.map((g) => g.eventTicker));
     const byEvent = new Map();
     for (const t of ctx.store.trades) {
-      if (t.status === 'done' || listed.has(t.eventTicker)) continue;
+      if (t.status === 'done' || listed.has(t.eventTicker) || sportForEvent(t.eventTicker) !== sport) continue;
       byEvent.set(t.eventTicker, [...(byEvent.get(t.eventTicker) ?? []), t]);
     }
     if (!byEvent.size) return [];
@@ -100,7 +103,7 @@ export function renderMarkets(root, ctx) {
     if (!visible.length) {
       listEl.append(query
         ? emptyState('No matches', `No open games for "${query}".`)
-        : emptyState('No games open', 'Kalshi has no NBA games open for trading right now. Check back closer to tip-off.'));
+        : emptyState('No games open', `Kalshi has no ${sport.label} games open for trading right now. Check back closer to game time.`));
       return;
     }
     for (const group of groupByDay(visible)) {
@@ -109,18 +112,41 @@ export function renderMarkets(root, ctx) {
   }
 
   async function load() {
+    const requested = sport;
     try {
-      const sport = SPORTS[0];
-      const events = await ctx.client.listEvents(sport.series);
-      games = events.map((e) => parseGame(e, sport)).filter(Boolean);
-      ctx.cachedGames = games;
+      const events = await ctx.client.listEvents(requested.series);
+      ctx.gamesBySport[requested.key] = events.map((e) => parseGame(e, requested)).filter(Boolean);
+      if (requested !== sport) return; // the user switched sports while this was loading
+      games = ctx.gamesBySport[requested.key];
       loadError = '';
     } catch (err) {
+      if (requested !== sport) return;
       loadError = err.message;
       if (loaded) toast(err.message, 'error');
     }
     loaded = true;
     renderList();
+  }
+
+  const sportTabs = SPORTS.map((s) =>
+    h('button', {
+      type: 'button',
+      class: 'seg-btn',
+      'aria-pressed': String(s === sport),
+      onclick: () => selectSport(s),
+    }, `${s.icon} ${s.label}`),
+  );
+
+  function selectSport(next) {
+    if (next === sport) return;
+    sport = next;
+    saveSportKey(sport.key);
+    sportTabs.forEach((tab, i) => tab.setAttribute('aria-pressed', String(SPORTS[i] === sport)));
+    games = ctx.gamesBySport[sport.key] ?? [];
+    loaded = sport.key in ctx.gamesBySport;
+    loadError = '';
+    renderList();
+    load();
   }
 
   async function loadBalance() {
@@ -166,12 +192,13 @@ export function renderMarkets(root, ctx) {
       h('header', { class: 'topbar' },
         logo(30),
         h('div', { class: 'topbar-title' },
-          h('h1', null, 'NBA'),
+          h('h1', null, 'Games'),
           ctx.env === 'demo' ? h('span', { class: 'chip chip-orange' }, 'Demo') : null,
         ),
         balanceEl,
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Settings', onclick: openSettings }, svgIcon('gear')),
       ),
+      h('div', { class: 'seg sport-tabs', role: 'group', 'aria-label': 'Sport' }, sportTabs),
       h('div', { class: 'search' }, svgIcon('search'), search),
       listEl,
     ),

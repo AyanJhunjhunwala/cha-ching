@@ -1,6 +1,9 @@
 import { connect } from '../session.js';
+import { SPORTS } from '../sports.js';
 import { saveCreds, clearCreds } from '../store.js';
 import { h, logo, svgIcon, toast } from './dom.js';
+
+const listLabels = (labels) => (labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}` : labels[0]);
 
 /**
  * Sign-in with a Kalshi API key: key ID + private key (paste or import file).
@@ -96,7 +99,7 @@ export function renderAuth(root, { onConnected, initial = {}, error = '' }) {
       h('header', { class: 'auth-hero' },
         logo(56),
         h('h1', null, 'Cha-Ching'),
-        h('p', { class: 'muted' }, 'Courtside trading for NBA games on Kalshi.'),
+        h('p', { class: 'muted' }, `Trade live ${listLabels(SPORTS.map((s) => s.label))} games on Kalshi.`),
       ),
       h('form', { class: 'card auth-card', onsubmit: onSubmit, novalidate: true },
         h('div', { class: 'seg', role: 'group', 'aria-label': 'Environment' }, envButtons),

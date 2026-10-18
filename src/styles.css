@@ -147,7 +147,7 @@ h1, h2, p { margin: 0; }
 .form-error { color: var(--red); font-size: 14px; }
 .auth-help { display: flex; flex-direction: column; gap: 8px; font-size: 13px; text-align: center; padding: 0 8px; }
 
-.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
 .seg-btn { min-height: 40px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 650; }
 .seg-btn[aria-pressed='true'] { background: var(--surface-2); color: var(--text); }
 .seg-btn[data-env='demo'][aria-pressed='true'] { color: var(--orange); }
@@ -174,6 +174,7 @@ h1, h2, p { margin: 0; }
 
 /* ---------- Markets ---------- */
 
+.sport-tabs { margin-bottom: 12px; background: var(--surface); }
 .search { position: relative; margin-bottom: 8px; }
 .search .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); width: 18px; height: 18px; }
 .search-input { padding-left: 42px; background: var(--surface); }
@@ -196,12 +197,13 @@ h1, h2, p { margin: 0; }
 .game-card:active { transform: scale(0.985); border-color: #3a4252; }
 .game-teams { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .team-row { display: flex; align-items: center; gap: 10px; }
-.team-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08); }
+.team-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2); }
 .team-code { font-weight: 800; width: 40px; flex: none; }
 .team-name { flex: 1; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .team-price { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
 .game-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .chevron { color: var(--muted); font-size: 24px; line-height: 1; }
+.game-time { font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .skeleton { height: 84px; background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }

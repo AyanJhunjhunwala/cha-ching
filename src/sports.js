@@ -113,9 +113,9 @@ const MLB_TEAMS = {
 const MLB_ALIASES = { AZ: 'ARI', CHW: 'CWS', OAK: 'ATH', WAS: 'WSH', KCR: 'KC', SDP: 'SD', SFG: 'SF', TBR: 'TB', TBD: 'TB' };
 
 export const SPORTS = [
-  { key: 'nba', label: 'NBA', series: 'KXNBAGAME', teams: NBA_TEAMS, aliases: NBA_ALIASES },
-  { key: 'nfl', label: 'NFL', series: 'KXNFLGAME', teams: NFL_TEAMS, aliases: NFL_ALIASES },
-  { key: 'mlb', label: 'MLB', series: 'KXMLBGAME', teams: MLB_TEAMS, aliases: MLB_ALIASES },
+  { key: 'nba', label: 'NBA', icon: '🏀', series: 'KXNBAGAME', teams: NBA_TEAMS, aliases: NBA_ALIASES },
+  { key: 'nfl', label: 'NFL', icon: '🏈', series: 'KXNFLGAME', teams: NFL_TEAMS, aliases: NFL_ALIASES },
+  { key: 'mlb', label: 'MLB', icon: '⚾', series: 'KXMLBGAME', teams: MLB_TEAMS, aliases: MLB_ALIASES },
 ];
 
 export const sportByKey = (key) => SPORTS.find((s) => s.key === key) ?? SPORTS[0];
@@ -248,6 +248,11 @@ export function dayLabel(date, now = new Date()) {
   if (diff === 1) return 'Tomorrow';
   if (diff === -1) return 'Yesterday';
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** Local start time ("7:05 PM") when the event ticker carries one, else "". */
+export function startTimeLabel(game) {
+  return game.hasTime ? game.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
 }
 
 /** Sorts games by date and groups them under day headings. */

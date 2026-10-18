@@ -52,7 +52,7 @@ function startSession({ client, env, balanceCents }) {
     store,
     settings: loadSettings(),
     trader: new Trader({ client, store }),
-    cachedGames: null,
+    gamesBySport: {}, // last loaded games per sport, so switching sports is instant
     refreshBalance: null, // set by whichever screen is showing a balance
     openMarkets: () => show(renderMarkets, ctx),
     openGame: (game) => show(renderGame, ctx, game),

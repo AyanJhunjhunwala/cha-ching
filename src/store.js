@@ -90,6 +90,18 @@ export function stepStake(value, direction) {
   return clampSetting('stakeDollars', Math.ceil(value / step) * step - step);
 }
 
+// --- Selected sport --------------------------------------------------------
+
+const SPORT_KEY = 'chaching.sport';
+
+export function loadSportKey() {
+  return readJson(SPORT_KEY, null);
+}
+
+export function saveSportKey(key) {
+  writeJson(SPORT_KEY, key);
+}
+
 // --- Trades ----------------------------------------------------------------
 
 const MAX_TRADES = 100;
