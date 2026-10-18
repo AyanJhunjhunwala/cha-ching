@@ -1,8 +1,9 @@
 import { formatCents, formatUsd } from '../kalshi/money.js';
-import { groupByDay, matchesSearch, parseGame, sportByKey, sportForEvent, SPORTS, startTimeLabel } from '../sports.js';
+import { formatMove } from '../live.js';
+import { groupByDay, isLive, matchesSearch, parseGame, sportByKey, sportForEvent, SPORTS, startsInLabel, startTimeLabel, timingByEvent } from '../sports.js';
 import { clampSetting, loadSportKey, saveSettings, saveSportKey } from '../store.js';
 import { sheet, stepper } from './controls.js';
-import { h, logo, poll, svgIcon, toast } from './dom.js';
+import { h, liveBadge, logo, poll, svgIcon, toast } from './dom.js';
 
 /** Scrollable list of open games for the chosen sport; tap one to trade it. */
 export function renderMarkets(root, ctx) {
@@ -26,22 +27,58 @@ export function renderMarkets(root, ctx) {
     },
   });
 
-  function teamRow(side) {
+  // Price cells by market ticker, so pushed quotes update the list in place.
+  const priceCells = new Map();
+
+  // Live games show how far each team moved in the last 5 minutes: "▲3".
+  function paintMove(cell) {
+    if (!cell.move) return;
+    const change = ctx.tape.change(cell.side.ticker);
+    const cents = Math.round(Math.abs(change?.delta ?? 0));
+    const dir = cents ? formatMove(change).dir : 'flat';
+    cell.move.textContent = cents ? `${dir === 'up' ? '▲' : '▼'}${cents}` : '';
+    cell.move.dataset.dir = dir;
+  }
+
+  function teamRow(side, live) {
+    const price = h('span', { class: 'team-price' }, formatCents(side.ask ?? side.last));
+    const move = live ? h('span', { class: 'team-move', title: 'Change in the last 5 minutes' }) : null;
+    const cell = { el: price, side, move };
+    priceCells.set(side.ticker, cell);
+    paintMove(cell);
     return h('div', { class: 'team-row' },
       h('span', { class: 'team-dot', style: { background: side.color } }),
       h('span', { class: 'team-code' }, side.code),
       h('span', { class: 'team-name' }, side.name),
-      h('span', { class: 'team-price' }, formatCents(side.ask ?? side.last)),
+      move,
+      price,
     );
   }
 
+  const offTicker = ctx.stream.on('ticker', (t) => {
+    const cell = priceCells.get(t.ticker);
+    if (!cell) return;
+    const before = cell.side.ask ?? cell.side.last;
+    for (const k of ['bid', 'ask', 'last']) if (t[k] !== undefined) cell.side[k] = t[k];
+    const after = cell.side.ask ?? cell.side.last;
+    paintMove(cell);
+    if (after === before) return;
+    cell.el.textContent = formatCents(after);
+    if (before != null && after != null) {
+      cell.el.classList.remove('tick-up', 'tick-down');
+      void cell.el.offsetWidth; // restart the flash
+      cell.el.classList.add(after > before ? 'tick-up' : 'tick-down');
+    }
+  });
+
   function gameCard(game) {
     const open = ctx.store.openCount(game.eventTicker);
-    const time = startTimeLabel(game);
-    return h('button', { type: 'button', class: 'game-card', onclick: () => ctx.openGame(game) },
-      h('div', { class: 'game-teams' }, teamRow(game.away), teamRow(game.home)),
+    const live = isLive(game);
+    const time = startsInLabel(game) || startTimeLabel(game);
+    return h('button', { type: 'button', class: `game-card${live ? ' is-live' : ''}`, onclick: () => ctx.openGame(game) },
+      h('div', { class: 'game-teams' }, teamRow(game.away, live), teamRow(game.home, live)),
       h('div', { class: 'game-meta' },
-        time ? h('span', { class: 'game-time' }, time) : null,
+        live ? liveBadge() : time ? h('span', { class: 'game-time' }, time) : null,
         open ? h('span', { class: 'chip chip-gold' }, `${open} open`) : null,
         game.tradable ? null : h('span', { class: 'chip' }, 'Paused'),
         h('span', { class: 'chevron', 'aria-hidden': 'true' }, '›'),
@@ -90,6 +127,7 @@ export function renderMarkets(root, ctx) {
 
   function renderList() {
     listEl.replaceChildren();
+    priceCells.clear();
     if (!loaded) {
       listEl.append(...Array.from({ length: 4 }, () => h('div', { class: 'game-card skeleton' })));
       return;
@@ -107,17 +145,22 @@ export function renderMarkets(root, ctx) {
       return;
     }
     for (const group of groupByDay(visible)) {
-      listEl.append(h('h2', { class: 'day-label' }, group.label), ...group.games.map(gameCard));
+      listEl.append(h('h2', { class: `day-label${group.live ? ' live-label' : ''}` }, group.label), ...group.games.map(gameCard));
     }
   }
 
   async function load() {
     const requested = sport;
     try {
-      const events = await ctx.client.listEvents(requested.series);
-      ctx.gamesBySport[requested.key] = events.map((e) => parseGame(e, requested)).filter(Boolean);
+      const { events, milestones } = await ctx.client.listEvents(requested.series);
+      const timing = timingByEvent(milestones);
+      ctx.gamesBySport[requested.key] = events.map((e) => parseGame(e, requested, timing.get(e.event_ticker))).filter(Boolean);
       if (requested !== sport) return; // the user switched sports while this was loading
       games = ctx.gamesBySport[requested.key];
+      ctx.stream.setMarkets(games.flatMap((g) => [g.away.ticker, g.home.ticker]));
+      for (const side of games.flatMap((g) => [g.away, g.home])) {
+        if (!ctx.stream.streaming || !ctx.tape.has(side.ticker)) ctx.tape.recordQuote(side.ticker, side);
+      }
       loadError = '';
     } catch (err) {
       if (requested !== sport) return;
@@ -127,6 +170,17 @@ export function renderMarkets(root, ctx) {
     loaded = true;
     renderList();
   }
+
+  const feedText = h('span');
+  const feedEl = h('div', { class: 'feed', role: 'status' }, h('span', { class: 'feed-dot', 'aria-hidden': 'true' }), feedText);
+  function updateFeed() {
+    const status = ctx.stream.status;
+    feedEl.dataset.state = status === 'live' ? 'live' : status === 'unsupported' ? 'poll' : 'retry';
+    feedText.textContent = status === 'live'
+      ? 'Live feed · prices update as they change'
+      : status === 'unsupported' ? 'Prices refresh every 10s' : 'Connecting live feed · refreshing every 10s';
+  }
+  updateFeed();
 
   const sportTabs = SPORTS.map((s) =>
     h('button', {
@@ -199,18 +253,28 @@ export function renderMarkets(root, ctx) {
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Settings', onclick: openSettings }, svgIcon('gear')),
       ),
       h('div', { class: 'seg sport-tabs', role: 'group', 'aria-label': 'Sport' }, sportTabs),
+      feedEl,
       h('div', { class: 'search' }, svgIcon('search'), search),
       listEl,
     ),
   );
 
   renderList();
+  if (games.length) ctx.stream.setMarkets(games.flatMap((g) => [g.away.ticker, g.home.ticker]));
   ctx.refreshBalance = loadBalance;
   const unsubscribe = ctx.store.subscribe(() => loaded && renderList());
-  const stops = [poll(load, 15000), poll(loadBalance, 30000)];
+  // Prices stream in; the REST reload picks up new games and status changes.
+  const listPoll = poll(load, () => (ctx.stream.streaming ? 20000 : 10000));
+  const offStatus = ctx.stream.on('status', (status) => {
+    updateFeed();
+    if (status !== 'live') listPoll.now();
+  });
+  const stops = [listPoll, poll(loadBalance, 30000)];
   return () => {
     stops.forEach((stop) => stop());
     unsubscribe();
+    offTicker();
+    offStatus();
     closeSheet?.();
     ctx.refreshBalance = null;
   };

@@ -73,19 +73,24 @@ export class KalshiClient {
     return d.balance ?? toCents(d.balance_dollars) ?? 0;
   }
 
-  /** Open events in a series, each with its markets nested. */
+  /**
+   * Open events in a series, each with its markets nested, plus the related
+   * milestones (which carry each game's start time).
+   */
   async listEvents(seriesTicker) {
     const events = [];
+    const milestones = [];
     let cursor;
     for (let page = 0; page < 5; page++) {
       const d = await this.request('GET', '/events', {
-        query: { series_ticker: seriesTicker, status: 'open', with_nested_markets: 'true', limit: 200, cursor },
+        query: { series_ticker: seriesTicker, status: 'open', with_nested_markets: 'true', with_milestones: 'true', limit: 200, cursor },
       });
       events.push(...(d.events ?? []));
+      milestones.push(...(d.milestones ?? []));
       cursor = d.cursor;
       if (!cursor) break;
     }
-    return events;
+    return { events, milestones };
   }
 
   async getEvent(eventTicker) {

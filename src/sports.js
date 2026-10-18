@@ -112,10 +112,12 @@ const MLB_TEAMS = {
 
 const MLB_ALIASES = { AZ: 'ARI', CHW: 'CWS', OAK: 'ATH', WAS: 'WSH', KCR: 'KC', SDP: 'SD', SFG: 'SF', TBR: 'TB', TBD: 'TB' };
 
+// `liveHours` is how long after the scheduled start a game is treated as in
+// progress when Kalshi doesn't give an end time (covers overtime/extra innings).
 export const SPORTS = [
-  { key: 'nba', label: 'NBA', icon: '🏀', series: 'KXNBAGAME', teams: NBA_TEAMS, aliases: NBA_ALIASES },
-  { key: 'nfl', label: 'NFL', icon: '🏈', series: 'KXNFLGAME', teams: NFL_TEAMS, aliases: NFL_ALIASES },
-  { key: 'mlb', label: 'MLB', icon: '⚾', series: 'KXMLBGAME', teams: MLB_TEAMS, aliases: MLB_ALIASES },
+  { key: 'nba', label: 'NBA', icon: '🏀', series: 'KXNBAGAME', liveHours: 3, teams: NBA_TEAMS, aliases: NBA_ALIASES },
+  { key: 'nfl', label: 'NFL', icon: '🏈', series: 'KXNFLGAME', liveHours: 4, teams: NFL_TEAMS, aliases: NFL_ALIASES },
+  { key: 'mlb', label: 'MLB', icon: '⚾', series: 'KXMLBGAME', liveHours: 4.5, teams: MLB_TEAMS, aliases: MLB_ALIASES },
 ];
 
 export const sportByKey = (key) => SPORTS.find((s) => s.key === key) ?? SPORTS[0];
@@ -148,6 +150,29 @@ export function parseEventTicker(eventTicker) {
   if (!m[4]) return { date: new Date(year, month, day), hasTime: false, matchup: m[5] };
   const hhmm = Number(m[4]);
   return { date: easternTime(year, month, day, Math.floor(hhmm / 100), hhmm % 100), hasTime: true, matchup: m[5] };
+}
+
+const GAME_MILESTONE = /_(game|match)$/;
+
+/**
+ * Start/end times per event from Kalshi milestones (GET /events?with_milestones=true).
+ * Prefers game-type milestones and events the milestone is primarily about.
+ * @returns {Map<string, {start: Date, end: Date|null}>}
+ */
+export function timingByEvent(milestones = []) {
+  const out = new Map();
+  const ranked = [...milestones].sort((a, b) => Number(GAME_MILESTONE.test(b.type ?? '')) - Number(GAME_MILESTONE.test(a.type ?? '')));
+  for (const pass of ['primary_event_tickers', 'related_event_tickers']) {
+    for (const m of ranked) {
+      const start = m.start_date ? new Date(m.start_date) : null;
+      if (!start || Number.isNaN(start.getTime())) continue;
+      const end = m.end_date ? new Date(m.end_date) : null;
+      for (const ticker of m[pass] ?? []) {
+        if (!out.has(ticker)) out.set(ticker, { start, end: end && !Number.isNaN(end.getTime()) ? end : null });
+      }
+    }
+  }
+  return out;
 }
 
 /** Best bid / ask on the YES side, in cents; null when that side of the book is empty. */
@@ -212,9 +237,15 @@ function awayFirst(sides, matchup) {
   return pos(b) < pos(a) ? [b, a] : [a, b];
 }
 
-/** @returns game object, or null if the event doesn't look like a two-team game. */
-export function parseGame(event, sport = sportForEvent(event.event_ticker)) {
-  const { date, hasTime, matchup } = parseEventTicker(event.event_ticker);
+/**
+ * @param timing optional {start, end} from timingByEvent(); otherwise the start
+ *   time comes from the ticker when it has one (MLB).
+ * @returns game object, or null if the event doesn't look like a two-team game.
+ */
+export function parseGame(event, sport = sportForEvent(event.event_ticker), timing = null) {
+  const parsed = parseEventTicker(event.event_ticker);
+  const start = timing?.start ?? (parsed.hasTime ? parsed.date : null);
+  const { matchup } = parsed;
   const sides = (event.markets ?? [])
     .filter((m) => m.ticker && !isTieMarket(m))
     .map((m) => toSide(m, sport))
@@ -231,8 +262,11 @@ export function parseGame(event, sport = sportForEvent(event.event_ticker)) {
     sport: sport?.key ?? null,
     eventTicker: event.event_ticker,
     title: event.title ?? `${away.city} at ${home.city}`,
-    date,
-    hasTime,
+    date: start ?? parsed.date,
+    hasTime: Boolean(start),
+    start,
+    end: timing?.end ?? null,
+    liveHours: sport?.liveHours ?? 3,
     away,
     home,
     tradable: away.status === 'active' && home.status === 'active',
@@ -255,13 +289,38 @@ export function startTimeLabel(game) {
   return game.hasTime ? game.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
 }
 
-/** Sorts games by date and groups them under day headings. */
+/**
+ * Where a game is in its life, from its start time:
+ *   live     — started and still inside the game window
+ *   upcoming — starts later
+ *   ended    — past the window (Kalshi may not have settled yet)
+ *   unknown  — no start time available
+ */
+export function liveState(game, now = new Date()) {
+  if (!game.start) return 'unknown';
+  const t = now.getTime();
+  if (t < game.start.getTime()) return 'upcoming';
+  const end = game.end?.getTime() ?? game.start.getTime() + game.liveHours * 3600000;
+  return t < end ? 'live' : 'ended';
+}
+
+export const isLive = (game, now = new Date()) => liveState(game, now) === 'live';
+
+/** "in 25m" for games starting within the hour, else "". */
+export function startsInLabel(game, now = new Date()) {
+  if (liveState(game, now) !== 'upcoming') return '';
+  const minutes = Math.ceil((game.start.getTime() - now.getTime()) / 60000);
+  return minutes <= 60 ? `in ${minutes}m` : '';
+}
+
+const byStart = (a, b) =>
+  (a.date?.getTime() ?? Infinity) - (b.date?.getTime() ?? Infinity) || a.eventTicker.localeCompare(b.eventTicker);
+
+/** Live games first under "Live now", then the rest by start time under day headings. */
 export function groupByDay(games, now = new Date()) {
-  const sorted = [...games].sort(
-    (a, b) => (a.date?.getTime() ?? Infinity) - (b.date?.getTime() ?? Infinity) || a.eventTicker.localeCompare(b.eventTicker),
-  );
-  const groups = [];
-  for (const game of sorted) {
+  const live = games.filter((g) => isLive(g, now)).sort(byStart);
+  const groups = live.length ? [{ label: 'Live now', live: true, games: live }] : [];
+  for (const game of games.filter((g) => !isLive(g, now)).sort(byStart)) {
     const label = dayLabel(game.date, now);
     if (groups.at(-1)?.label !== label) groups.push({ label, games: [] });
     groups.at(-1).games.push(game);
