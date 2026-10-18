@@ -4,8 +4,8 @@ Courtside trading for NBA, NFL and MLB games on [Kalshi](https://kalshi.com). Yo
 
 <p>
   <img src="docs/auth.png" width="240" alt="Sign-in screen">
-  <img src="docs/markets.png" width="240" alt="Games list with NBA, NFL and MLB tabs">
-  <img src="docs/game.png" width="240" alt="Game screen with two favor buttons and an open trade">
+  <img src="docs/markets.png" width="240" alt="Games list with sport tabs and a live game listed first">
+  <img src="docs/game.png" width="240" alt="Live game screen with streaming feed, sparklines and two favor buttons">
 </p>
 
 ## How it works
@@ -21,6 +21,31 @@ Courtside trading for NBA, NFL and MLB games on [Kalshi](https://kalshi.com). Yo
 5. **That sell order rests on Kalshi itself.** It fills the moment the price gets there, even if your phone is locked or the app is closed. When the app is open you get a "Cha-ching!" alert and a haptic tap from any screen.
 
 Each trade card shows entry, target, the live bid, a progress bar, and P&L. **Sell now** (tap twice to confirm) cancels the target and sells at the current bid. If a sell order ever fails or gets canceled, the trade is marked **Needs attention** and offers a one-tap retry.
+
+## Live games and live prices
+
+- **Live games come first.** Each game's start time comes from Kalshi's milestones, or from the ticker for MLB. Games in progress go in a **Live now** section at the top, with a pulsing **LIVE** badge. A game counts as live from its start until Kalshi's end time, or for 3 h (NBA), 4 h (NFL) or 4.5 h (MLB) when Kalshi doesn't give one. Upcoming games show their start time, or "in 25m" within the hour.
+- **Prices stream over Kalshi's WebSocket.** The app subscribes to `ticker` (best bid/ask and last price) and `trade` for the markets on screen, and to `fill` for your own orders. Kalshi pushes every change, so there is no polling interval to wait out.
+- **You can see that it's moving.** The game screen shows a feed line ("Live feed · 14 trades/min · moved 8s ago"), and each team button has a 10-minute sparkline with its 5-minute change ("▲ 7¢ · 4m"). Live cards in the list show each team's move ("▲13").
+
+How fresh the numbers are:
+
+| What | Streaming | If the live feed can't connect |
+|---|---|---|
+| Game screen prices | pushed on every change | REST every 1 s |
+| Games list prices | pushed on every change | REST every 10 s |
+| Your sell order filling | pushed `fill` → "Sold" within a moment | REST every 3 s |
+| Background check (pauses, new games) | REST every 10 s (game) / 20 s (list) | (same as above) |
+
+Updates that arrive in bursts are drawn at most once per screen frame. The feed reconnects automatically, with backoff and a second Kalshi host, and right away when you reopen the app.
+
+Kalshi requires signed headers on the WebSocket handshake, which browser and WebView sockets can't send, so each build connects its own way:
+
+- **iPhone:** a small native plugin (`ios/App/App/KalshiSocketPlugin.swift`).
+- **Desktop:** the Electron main process.
+- **`npm run dev`:** the Vite dev server proxy.
+
+In each case the request is signed on your device and goes straight to Kalshi.
 
 ## Runs completely locally
 
@@ -69,7 +94,7 @@ In Xcode:
 
 With a free Apple ID the app needs re-installing from Xcode every 7 days. A paid Apple Developer account ($99/yr) removes that limit and lets you distribute through TestFlight.
 
-After changing the web code, run `npm run ios:sync` and press Run again.
+After changing the web code, run `npm run ios:sync` and press Run again. Changes to native code (like `KalshiSocketPlugin.swift`) need a fresh build in Xcode, which Run does.
 
 ## Desktop (Electron)
 
@@ -125,13 +150,16 @@ src/
     sha256.js
     client.js     Kalshi Trade API v2 calls (V2 orders, fixed-point prices)
     transport.js  CapacitorHttp on iPhone, IPC on Electron, Vite proxy in the browser
+    stream.js     WebSocket client: ticker/trade/fill subscriptions, reconnect, parsing
+    socket.js     WebSocket transports: native plugin, Electron main process, dev proxy
     money.js      dollar-string ↔ cents, tick rounding
-  sports.js       NBA/NFL/MLB registry: Kalshi game events → two-team games, team colors
+  sports.js       NBA/NFL/MLB registry: Kalshi game events → two-team games, start times, live state
+  live.js         rolling price/trade tape behind the sparklines, moves and trade pace
   trader.js       favor → buy → rest target → track → sell now
   store.js        settings, saved key, trade history (all local)
   ui/             auth, markets, game screens
 electron/         desktop shell (main + preload)
-ios/              Xcode project (Capacitor, Swift Package Manager)
+ios/              Xcode project (Capacitor, Swift Package Manager) + KalshiSocketPlugin.swift
 test/             node:test suites
 ```
 
