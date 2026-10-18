@@ -1,7 +1,7 @@
 {
   "name": "cha-ching",
   "version": "1.0.0",
-  "description": "Courtside NBA trading on Kalshi: favor a team, buy at the current price, auto-sell at your target.",
+  "description": "Courtside trading for NBA, NFL and MLB games on Kalshi: favor a team, buy at the current price, auto-sell at your target.",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",

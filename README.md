@@ -1,17 +1,17 @@
 # Cha-Ching
 
-Courtside trading for NBA games on [Kalshi](https://kalshi.com). You're at the game, your team goes on a run, and you hold one button. Cha-Ching buys that team at the current price and immediately lists it for sale at your target.
+Courtside trading for NBA, NFL and MLB games on [Kalshi](https://kalshi.com). You're at the game, your team makes a big play, and you hold one button. Cha-Ching buys that team at the current price and immediately lists it for sale at your target.
 
 <p>
   <img src="docs/auth.png" width="240" alt="Sign-in screen">
-  <img src="docs/markets.png" width="240" alt="List of NBA games">
+  <img src="docs/markets.png" width="240" alt="Games list with NBA, NFL and MLB tabs">
   <img src="docs/game.png" width="240" alt="Game screen with two favor buttons and an open trade">
 </p>
 
 ## How it works
 
 1. **Sign in with your Kalshi API key.** Enter the key ID and the private key (paste it or import the `.pem` file). Pick **Live money** or **Demo**.
-2. **Pick a game.** Every NBA game open on Kalshi is listed by day. Each team shows its current buy price.
+2. **Pick a sport and a game.** Switch between **NBA**, **NFL** and **MLB** at the top. Every game open on Kalshi is listed by day, MLB games with their start time. Each team shows its current buy price.
 3. **Set your two numbers** at the top of the game screen:
    - **Spend per tap**: how many dollars each tap buys.
    - **Sell when up**: how many cents above your entry price to sell at.
@@ -83,7 +83,7 @@ npm run dist:desktop   # package an installer into release/
 
 ```bash
 npm run dev            # http://localhost:5173, hot reload
-npm test               # signer, NBA parsing, trading engine, API client
+npm test               # signer, sports parsing, trading engine, API client
 ```
 
 In the browser, Vite proxies `/kalshi/live` and `/kalshi/demo` to Kalshi so CORS doesn't block requests.
@@ -126,7 +126,7 @@ src/
     client.js     Kalshi Trade API v2 calls (V2 orders, fixed-point prices)
     transport.js  CapacitorHttp on iPhone, IPC on Electron, Vite proxy in the browser
     money.js      dollar-string ↔ cents, tick rounding
-  nba.js          KXNBAGAME events → two-team games, team colors
+  sports.js       NBA/NFL/MLB registry: Kalshi game events → two-team games, team colors
   trader.js       favor → buy → rest target → track → sell now
   store.js        settings, saved key, trade history (all local)
   ui/             auth, markets, game screens
@@ -134,5 +134,7 @@ electron/         desktop shell (main + preload)
 ios/              Xcode project (Capacitor, Swift Package Manager)
 test/             node:test suites
 ```
+
+To add another league, add an entry to `SPORTS` in `src/sports.js` with its Kalshi series ticker (for example `KXNHLGAME`) and a team table; teams it doesn't know still work, using Kalshi's names and a fallback color.
 
 The API client follows Kalshi's current schema from their official SDK: orders go to `POST /portfolio/events/orders` with `bid`/`ask` sides and fixed-point `"0.5600"` prices, and market data uses the `*_dollars` fields.
