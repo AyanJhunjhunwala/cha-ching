@@ -32,7 +32,7 @@
     "vite": "^8.0.0"
   },
   "build": {
-    "appId": "com.chaching.app",
+    "appId": "com.ayanjhunjhunwala.chaching",
     "productName": "Cha-Ching",
     "files": [
       "dist/**",

@@ -88,7 +88,7 @@ npm run ios        # builds the app, syncs it into ios/, and opens Xcode
 
 In Xcode:
 
-1. Select the **App** target → **Signing & Capabilities** → pick your Team (your Apple ID). If Xcode says the bundle ID is taken, change `com.chaching.app` to something unique.
+1. Select the **App** target → **Signing & Capabilities** → pick your Team (your Apple ID; choose **Add an Account…** if it isn't listed). The bundle ID is `com.ayanjhunjhunwala.chaching`; if Xcode says it can't be registered to your team, change it to anything unique, e.g. add your initials.
 2. Plug in your iPhone, select it as the run destination, and press **Run**.
 3. The first time, on the iPhone go to **Settings → General → VPN & Device Management** and trust your developer certificate. You may also need to turn on **Developer Mode** (Settings → Privacy & Security).
 
