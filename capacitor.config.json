@@ -1,0 +1,10 @@
+{
+  "appId": "com.chaching.app",
+  "appName": "Cha-Ching",
+  "webDir": "dist",
+  "backgroundColor": "#0a0c10",
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": true
+  }
+}
